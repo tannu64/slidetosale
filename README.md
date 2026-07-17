@@ -4,7 +4,7 @@
 
 When a customer messages a store asking *"do you have the black hoodie in medium?"*, SlideToSale reads the message, checks **live Shopify inventory**, replies in a natural on-brand voice, detects how ready-to-buy the customer is, and — at the right moment — drops a **one-tap checkout link** straight into the conversation. Every step is logged, so the merchant sees exactly how many DMs turned into revenue on a live dashboard.
 
-Built end-to-end as a portfolio project using **entirely free tools** — no paid services required to run it.
+Built end-to-end project using **entirely free tools** — no paid services required to run it.
 
 ---
 
@@ -58,34 +58,47 @@ Assistant: Great choice — the Classic Hoodie in Medium is $49.99 and in stock.
 
 ## Architecture
 
-A single customer message travels through five stages:
+A single customer message flows end to end — from DM, through the AI and Shopify, to a logged sale on the dashboard. The key decision point is buying intent: a high-intent message with a known variant becomes a checkout link, while everything else stays a conversation.
 
-```
-  ┌─────────────────────────────┐
-  │  Customer sends a DM         │   Instagram → webhook
-  └──────────────┬──────────────┘
-                 ▼
-  ┌─────────────────────────────┐
-  │  Store message, load history │   FastAPI + PostgreSQL
-  └──────────────┬──────────────┘
-                 ▼
-  ┌─────────────────────────────┐
-  │  AI writes reply, scores     │   Groq (Llama 3.3 70B),
-  │  intent, checks live stock   │   grounded in synced products
-  └──────────────┬──────────────┘
-                 ▼
-  ┌─────────────────────────────┐
-  │  Checkout link created       │   Shopify Draft Order
-  │  (on high intent)            │   for the exact variant
-  └──────────────┬──────────────┘
-                 ▼
-  ┌─────────────────────────────┐
-  │  Reply sent, everything      │   click-tracked redirect,
-  │  logged → dashboard          │   funnel events, revenue
-  └─────────────────────────────┘
-```
+```mermaid
+flowchart TD
+    A([Customer sends a DM]):::customer --> B[FastAPI backend<br/>receives message]
 
-> A polished version of this diagram can be exported to `docs/architecture.png` and embedded here.
+    B --> C[(PostgreSQL<br/>store message + load history)]
+    B --> D{{Shopify Admin API<br/>synced every 30 min}}
+
+    C --> E[AI layer · Groq Llama 3.3 70B]
+    D -.live product + stock.-> E
+
+    E --> F[/Reply + intent + variant<br/>structured JSON/]
+
+    F --> G{Buying intent?}
+
+    G -->|high + variant known| H[Create Shopify<br/>Draft Order]
+    G -->|high, no variant| I[Ask which size / colour]
+    G -->|medium / low| J[Answer or nurture]
+
+    H --> K[/Checkout link/]
+    K --> L[Tracking redirect<br/>logs the click]
+    L --> M([Shopify checkout page])
+
+    I --> N[Send reply to customer]
+    J --> N
+    K --> N
+
+    B --> O[(Log funnel events)]
+    H --> O
+    L --> O
+    P{{Shopify order webhook<br/>HMAC verified}} --> O
+
+    O --> Q[Analytics engine<br/>KPIs + revenue]
+    Q --> R[/Merchant dashboard/]
+
+    classDef customer fill:#6366f1,stroke:#4338ca,color:#fff
+    classDef ai fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    class A,M customer
+    class E ai
+```
 
 ---
 
