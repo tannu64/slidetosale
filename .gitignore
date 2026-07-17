@@ -1,0 +1,9 @@
+# Python virtual environment — big and rebuildable, never commit
+.venv/
+
+# Python's compiled cache files
+__pycache__/
+*.pyc
+
+# Secrets and API keys — must never reach GitHub
+.env
