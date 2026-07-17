@@ -40,8 +40,10 @@ def build_system_prompt(product_context):
         '- high: ready to buy now (e.g. "I\'ll take it", "how do I pay").\n'
         '- medium: interested but not committed (e.g. asking about price, stock, sizes).\n'
         '- low: just browsing or chatting (e.g. "nice", "cool store").\n\n'
+        'When intent is high AND the customer named a specific variant (size or color), fill in product and variant. '
+        'If they want to buy but have NOT specified a size or color yet, set variant to an empty string and instead ask them which one in your reply. '
         'Respond ONLY with valid JSON in exactly this format, nothing else:\n'
-        '{"reply": "your reply text here", "intent": "high|medium|low"}\n\n'
+        '{"reply": "your reply text", "intent": "high|medium|low", "product": "product name or empty", "variant": "variant label or empty"}\n\n'
         f'PRODUCTS:\n{product_context}'
     )
 
@@ -67,4 +69,6 @@ def generate_response(customer_message):
     return {
         'reply': data.get('reply', ''),
         'intent': data.get('intent', 'low'),
+        'product': data.get('product', ''),
+        'variant': data.get('variant', ''),
     }
