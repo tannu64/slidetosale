@@ -7,18 +7,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import get_db
 import models
 import sync
+import search
 
 scheduler = BackgroundScheduler()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs once when the server starts.
-    sync.sync_products()                      # fresh data immediately
+    sync.sync_products()
     scheduler.add_job(sync.sync_products, 'interval', minutes=30)
     scheduler.start()
     yield
-    # Runs when the server shuts down.
     scheduler.shutdown()
 
 
@@ -56,3 +55,9 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
 def sync_products_endpoint():
     sync.sync_products()
     return {'status': 'sync complete'}
+
+
+@app.get('/search')
+def search_endpoint(keyword: str, variant: str = None, db: Session = Depends(get_db)):
+    results = search.search_products(db, keyword, variant)
+    return {'count': len(results), 'results': results}
