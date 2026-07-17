@@ -9,6 +9,7 @@ import models
 import sync
 import search
 import orchestrator
+import events
 
 scheduler = BackgroundScheduler()
 
@@ -37,7 +38,7 @@ def read_root():
 
 @app.post('/simulate-dm')
 def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
-    # 1. Store the incoming customer message.
+    # 1. Store the incoming customer message + log the dm_received event.
     customer_msg = models.Message(
         conversation_id=dm.conversation_id,
         sender='customer',
@@ -46,11 +47,12 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
     db.add(customer_msg)
     db.commit()
     db.refresh(customer_msg)
+    events.log_event(dm.conversation_id, 'dm_received')
 
     # 2. Run the full AI pipeline.
     result = orchestrator.handle_message(dm.text)
 
-    # 3. Store the AI reply, tagged with the detected intent.
+    # 3. Store the AI reply + log the detected intent.
     ai_msg = models.Message(
         conversation_id=dm.conversation_id,
         sender='assistant',
@@ -60,8 +62,13 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
     db.add(ai_msg)
     db.commit()
     db.refresh(ai_msg)
+    events.log_event(dm.conversation_id, 'intent_detected')
 
-    # 4. Return everything.
+    # 4. If a checkout link was generated, log that too.
+    if result['checkout_link']:
+        events.log_event(dm.conversation_id, 'checkout_generated')
+
+    # 5. Return everything.
     return {
         'customer_message_id': customer_msg.id,
         'reply': result['reply'],
