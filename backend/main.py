@@ -8,6 +8,7 @@ from database import get_db
 import models
 import sync
 import search
+import orchestrator
 
 scheduler = BackgroundScheduler()
 
@@ -36,18 +37,36 @@ def read_root():
 
 @app.post('/simulate-dm')
 def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
-    new_message = models.Message(
+    # 1. Store the incoming customer message.
+    customer_msg = models.Message(
         conversation_id=dm.conversation_id,
         sender='customer',
         text=dm.text,
     )
-    db.add(new_message)
+    db.add(customer_msg)
     db.commit()
-    db.refresh(new_message)
+    db.refresh(customer_msg)
+
+    # 2. Run the full AI pipeline.
+    result = orchestrator.handle_message(dm.text)
+
+    # 3. Store the AI reply, tagged with the detected intent.
+    ai_msg = models.Message(
+        conversation_id=dm.conversation_id,
+        sender='assistant',
+        text=result['reply'],
+        intent=result['intent'],
+    )
+    db.add(ai_msg)
+    db.commit()
+    db.refresh(ai_msg)
+
+    # 4. Return everything.
     return {
-        'status': 'stored',
-        'message_id': new_message.id,
-        'text': new_message.text,
+        'customer_message_id': customer_msg.id,
+        'reply': result['reply'],
+        'intent': result['intent'],
+        'checkout_link': result['checkout_link'],
     }
 
 
