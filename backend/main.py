@@ -1,9 +1,15 @@
+import os
+import hmac
+import hashlib
+import base64
+import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
+from dotenv import load_dotenv
 
 from database import get_db
 import models
@@ -12,7 +18,9 @@ import search
 import orchestrator
 import events
 
+load_dotenv()
 BASE_URL = 'http://127.0.0.1:8000'
+WEBHOOK_SECRET = os.getenv('SHOPIFY_WEBHOOK_SECRET', '')
 
 scheduler = BackgroundScheduler()
 
@@ -32,6 +40,14 @@ app = FastAPI(lifespan=lifespan)
 class IncomingDM(BaseModel):
     conversation_id: int
     text: str
+
+
+def verify_shopify_webhook(body: bytes, hmac_header: str) -> bool:
+    if not hmac_header:
+        return False
+    digest = hmac.new(WEBHOOK_SECRET.encode('utf-8'), body, hashlib.sha256).digest()
+    computed = base64.b64encode(digest).decode('utf-8')
+    return hmac.compare_digest(computed, hmac_header)
 
 
 @app.get('/')
@@ -56,7 +72,6 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
     reply = result['reply']
     tracking_link = None
 
-    # If a checkout link was generated, store it on the event and build a tracking link.
     if result['checkout_link']:
         event_id = events.log_event(
             dm.conversation_id,
@@ -64,7 +79,6 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
             checkout_url=result['checkout_link'],
         )
         tracking_link = f'{BASE_URL}/click/{event_id}'
-        # Replace the raw Shopify link in the reply with our tracking link.
         reply = reply.replace(result['checkout_link'], tracking_link)
 
     ai_msg = models.Message(
@@ -91,9 +105,28 @@ def track_click(event_id: int, db: Session = Depends(get_db)):
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if event is None or not event.checkout_url:
         return {'error': 'link not found'}
-    # Log the click, then redirect to the real Shopify checkout.
     events.log_event(event.conversation_id, 'checkout_clicked')
     return RedirectResponse(url=event.checkout_url)
+
+
+@app.post('/webhooks/order')
+async def order_webhook(request: Request):
+    body = await request.body()
+    hmac_header = request.headers.get('X-Shopify-Hmac-Sha256', '')
+
+    if not verify_shopify_webhook(body, hmac_header):
+        raise HTTPException(status_code=401, detail='Invalid webhook signature')
+
+    order = json.loads(body)
+    order_value = float(order.get('total_price', 0))
+    # Attribution: real orders carry the conversation id in note_attributes.
+    conversation_id = 1
+    for attr in order.get('note_attributes', []):
+        if attr.get('name') == 'conversation_id':
+            conversation_id = int(attr.get('value', 1))
+
+    events.log_event(conversation_id, 'purchase', order_value=order_value)
+    return {'status': 'purchase logged', 'value': order_value}
 
 
 @app.post('/sync-products')
