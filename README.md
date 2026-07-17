@@ -32,6 +32,13 @@ Built end-to-end project using **entirely free tools** — no paid services requ
 
 ![SlideToSale dashboard](docs/dashboard.png)
 
+## Watch SlideToSale turn a DM into a Shopify checkout:
+
+
+https://github.com/user-attachments/assets/c684ea6b-605d-4452-9021-ade244c5f056
+
+
+
 > **The conversation** — a messy real message in, an accurate reply and checkout link out.
 
 ```
