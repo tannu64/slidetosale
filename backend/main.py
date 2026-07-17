@@ -6,6 +6,8 @@ import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -36,6 +38,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.mount('/static', StaticFiles(directory='static'), name='static')
+
+@app.get('/dashboard')
+def dashboard():
+    return FileResponse('static/dashboard.html')
 
 
 class IncomingDM(BaseModel):
