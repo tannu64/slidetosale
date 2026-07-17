@@ -13,3 +13,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Every table class we write will inherit from this Base, which ties them together.
 Base = declarative_base()
+
+# Hands each request a fresh database session, then closes it no matter what.
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
