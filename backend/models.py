@@ -86,6 +86,7 @@ class Event(Base):
     conversation_id = Column(Integer, ForeignKey("conversations.id"))
     event_type = Column(String)                      # dm_received, checkout_generated, purchase, etc.
     order_value = Column(Float, nullable=True)       # filled in only for purchase events
+    checkout_url = Column(String, nullable=True)     # for checkout_generated events, the Shopify link
     created_at = Column(DateTime, server_default=func.now())
 
     conversation = relationship("Conversation", back_populates="events")
