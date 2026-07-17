@@ -17,6 +17,7 @@ import sync
 import search
 import orchestrator
 import events
+import conversations
 
 load_dotenv()
 BASE_URL = 'http://127.0.0.1:8000'
@@ -38,7 +39,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 class IncomingDM(BaseModel):
-    conversation_id: int
+    customer_id: str
     text: str
 
 
@@ -57,15 +58,18 @@ def read_root():
 
 @app.post('/simulate-dm')
 def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
+    # Find or create a conversation for this customer (always linked to merchant).
+    conversation_id = conversations.get_or_create_conversation(dm.customer_id)
+
     customer_msg = models.Message(
-        conversation_id=dm.conversation_id,
+        conversation_id=conversation_id,
         sender='customer',
         text=dm.text,
     )
     db.add(customer_msg)
     db.commit()
     db.refresh(customer_msg)
-    events.log_event(dm.conversation_id, 'dm_received')
+    events.log_event(conversation_id, 'dm_received')
 
     result = orchestrator.handle_message(dm.text)
 
@@ -74,7 +78,7 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
 
     if result['checkout_link']:
         event_id = events.log_event(
-            dm.conversation_id,
+            conversation_id,
             'checkout_generated',
             checkout_url=result['checkout_link'],
         )
@@ -82,7 +86,7 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
         reply = reply.replace(result['checkout_link'], tracking_link)
 
     ai_msg = models.Message(
-        conversation_id=dm.conversation_id,
+        conversation_id=conversation_id,
         sender='assistant',
         text=reply,
         intent=result['intent'],
@@ -90,10 +94,10 @@ def simulate_dm(dm: IncomingDM, db: Session = Depends(get_db)):
     db.add(ai_msg)
     db.commit()
     db.refresh(ai_msg)
-    events.log_event(dm.conversation_id, 'intent_detected')
+    events.log_event(conversation_id, 'intent_detected')
 
     return {
-        'customer_message_id': customer_msg.id,
+        'conversation_id': conversation_id,
         'reply': reply,
         'intent': result['intent'],
         'checkout_link': tracking_link,
@@ -119,7 +123,6 @@ async def order_webhook(request: Request):
 
     order = json.loads(body)
     order_value = float(order.get('total_price', 0))
-    # Attribution: real orders carry the conversation id in note_attributes.
     conversation_id = 1
     for attr in order.get('note_attributes', []):
         if attr.get('name') == 'conversation_id':
@@ -127,6 +130,12 @@ async def order_webhook(request: Request):
 
     events.log_event(conversation_id, 'purchase', order_value=order_value)
     return {'status': 'purchase logged', 'value': order_value}
+
+
+@app.get('/analytics')
+def analytics_endpoint(days: int = 30):
+    import analytics
+    return analytics.get_analytics(merchant_id=1, days=days)
 
 
 @app.post('/sync-products')
